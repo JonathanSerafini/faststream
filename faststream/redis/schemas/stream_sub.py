@@ -1,5 +1,6 @@
 import warnings
 from copy import deepcopy
+from typing import overload
 
 from faststream._internal.proto import NameRequired
 from faststream.exceptions import SetupError
@@ -17,15 +18,49 @@ class StreamSub(NameRequired):
         "maxlen",
         "name",
         "no_ack",
+        "pending_interval",
+        "pending_min_idle",
         "polling_interval",
     )
+
+    @overload
+    def __init__(
+        self,
+        stream: str,
+        *,
+        polling_interval: int | None = None,
+        batch: bool = False,
+        no_ack: bool = False,
+        last_id: str | None = None,
+        maxlen: int | None = None,
+        max_records: int | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        stream: str,
+        group: str,
+        consumer: str,
+        *,
+        pending_interval: float | None = None,
+        pending_min_idle: int | None = None,
+        polling_interval: int | None = None,
+        batch: bool = False,
+        no_ack: bool = False,
+        last_id: str | None = None,
+        maxlen: int | None = None,
+        max_records: int | None = None,
+    ) -> None: ...
 
     def __init__(
         self,
         stream: str,
-        polling_interval: int | None = None,
         group: str | None = None,
         consumer: str | None = None,
+        pending_interval: float | None = None,
+        pending_min_idle: int | None = None,
+        polling_interval: int | None = None,
         batch: bool = False,
         no_ack: bool = False,
         last_id: str | None = None,
@@ -66,6 +101,8 @@ class StreamSub(NameRequired):
 
         self.group = group
         self.consumer = consumer
+        self.pending_interval = pending_interval
+        self.pending_min_idle = pending_min_idle
         self.polling_interval = polling_interval or 100
         self.batch = batch
         self.no_ack = no_ack

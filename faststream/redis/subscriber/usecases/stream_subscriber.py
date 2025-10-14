@@ -1,3 +1,4 @@
+import asyncio
 import math
 from collections.abc import AsyncIterator, Awaitable
 from dataclasses import dataclass, field
@@ -181,6 +182,29 @@ class RedisConsumerReader(RedisGroupReader):
 
         return response
 
+    async def monitor_pending(self) -> None:
+        interval = self.stream_sub.pending_interval or 60
+
+        while True:
+            if not self._client:
+                await asyncio.sleep(interval)
+                continue
+
+            response = await self.client.xpending_range(
+                name=self.stream_sub.name,
+                groupname=self.stream_sub.group,
+                consumername=self.stream_sub.consumer,
+                min="-",
+                max="+",
+                count=1,
+                idle=self.stream_sub.pending_min_idle,
+            )
+
+            if response:
+                self.resume_from("0-0")
+
+            await asyncio.sleep(interval)
+
 
 class _StreamHandlerMixin(LogicSubscriber):
     reader: RedisStreamReader | RedisGroupReader | RedisConsumerReader
@@ -198,6 +222,10 @@ class _StreamHandlerMixin(LogicSubscriber):
 
         if stream.consumer:
             self.reader = RedisConsumerReader(stream_sub=stream)
+
+            if self.stream_sub.pending_interval:
+                self.add_task(self.reader.monitor_pending)
+
         else:
             self.reader = RedisStreamReader(stream_sub=stream)
 

@@ -733,6 +733,7 @@ class TestConsumeStream(RedisTestcaseConfig):
         queue: str,
     ) -> None:
         """Should first attempt to consume from PEL then from stream."""
+        print()
         event = asyncio.Event()
 
         consume_broker = self.get_broker()
@@ -763,7 +764,7 @@ class TestConsumeStream(RedisTestcaseConfig):
             await client.xreadgroup(
                 groupname="group",
                 consumername=queue,
-                count=1,
+                count=2,
                 streams={queue: ">"},
             )
 
@@ -780,6 +781,62 @@ class TestConsumeStream(RedisTestcaseConfig):
         mock.assert_has_calls([
             call({"message": "pending"}),
             call({"message": "new"}),
+        ])
+
+        assert mock.call_count == 2
+
+    async def test_consume_pending_with_task(
+        self,
+        mock: MagicMock,
+        queue: str,
+    ) -> None:
+        """Should detect pending messages via background task."""
+        event = asyncio.Event()
+
+        consume_broker = self.get_broker()
+        client = await consume_broker.connect()
+
+        subscriber = consume_broker.subscriber(
+            stream=StreamSub(
+                queue, group="group", consumer=queue, last_id=">", pending_interval=0.01
+            )
+        )
+
+        @subscriber
+        async def handler(msg: RedisMessage) -> None:
+            mock(msg)
+            if mock.call_count == 2:
+                event.set()
+
+        async with self.patch_broker(consume_broker) as br:
+            await client.xgroup_create(
+                name=queue,
+                id="$",
+                groupname="group",
+                mkstream=True,
+            )
+
+            await client.xadd(queue, {"message": "pending"})
+            await client.xadd(queue, {"message": "new"})
+
+            # consume the "pending" message
+            await client.xreadgroup(
+                groupname="group",
+                consumername=queue,
+                count=1,
+                streams={queue: ">"},
+            )
+
+            await br.start()
+
+            await asyncio.wait(
+                (asyncio.create_task(event.wait()),),
+                timeout=3,
+            )
+
+        mock.assert_has_calls([
+            call({"message": "new"}),
+            call({"message": "pending"}),
         ])
 
         assert mock.call_count == 2
