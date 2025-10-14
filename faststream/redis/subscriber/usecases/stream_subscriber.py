@@ -224,7 +224,7 @@ class _StreamHandlerMixin(LogicSubscriber):
 
     @override
     async def start(self) -> None:
-        if self.tasks:
+        if self.started:
             return
 
         client = self._client

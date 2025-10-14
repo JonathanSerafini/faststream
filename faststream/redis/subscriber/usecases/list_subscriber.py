@@ -71,7 +71,7 @@ class _ListHandlerMixin(LogicSubscriber):
 
     @override
     async def start(self) -> None:
-        if self.tasks:
+        if self.started:
             return
 
         await super().start(self._client)

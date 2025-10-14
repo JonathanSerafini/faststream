@@ -36,6 +36,7 @@ Offset: TypeAlias = bytes
 class LogicSubscriber(TasksMixin, SubscriberUsecase[UnifyRedisDict]):
     """A class to represent a Redis handler."""
 
+    started: bool
     _outer_config: "RedisBrokerConfig"
 
     def __init__(
@@ -46,6 +47,7 @@ class LogicSubscriber(TasksMixin, SubscriberUsecase[UnifyRedisDict]):
     ) -> None:
         super().__init__(config, specification, calls)
         self.config = config
+        self.started = False
 
     @property
     def _client(self) -> "Redis[bytes]":
@@ -68,12 +70,13 @@ class LogicSubscriber(TasksMixin, SubscriberUsecase[UnifyRedisDict]):
         self,
         *args: Any,
     ) -> None:
-        if self.tasks:
+        if self.started:
             return
 
         await super().start()
 
         self._post_start()
+        self.started = True
 
         start_signal = anyio.Event()
 
@@ -85,6 +88,11 @@ class LogicSubscriber(TasksMixin, SubscriberUsecase[UnifyRedisDict]):
 
         else:
             start_signal.set()
+
+    @override
+    async def stop(self) -> None:
+        await super().stop()
+        self.started = False
 
     async def _consume(self, *args: Any, start_signal: anyio.Event) -> None:
         connected = True
