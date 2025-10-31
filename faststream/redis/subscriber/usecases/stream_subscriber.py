@@ -1,3 +1,4 @@
+import asyncio
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 TopicName: TypeAlias = bytes
 Offset: TypeAlias = bytes
 
-
 ReadResponse = tuple[
     tuple[
         TopicName,
@@ -48,7 +48,6 @@ ReadResponse = tuple[
     ],
     ...,
 ]
-
 ReadCallable = Callable[[str], Awaitable[ReadResponse]]
 
 
@@ -131,23 +130,34 @@ class _StreamHandlerMixin(LogicSubscriber):
                 async def read(
                     _: str,
                 ) -> ReadResponse:
-                    await client.xautoclaim(
-                        name=stream.name,
-                        groupname=stream.group,
-                        consumername=stream.consumer,
-                        count=1,
-                        justid=True,
-                        min_idle_time=self.min_idle_time,
-                    )
-
-                    return await client.xreadgroup(  # type: ignore[no-any-return]
+                    # fetch and return any messages from the start of the pending list
+                    # for the current consumer
+                    response: ReadResponse = await client.xreadgroup(
                         groupname=stream.group,
                         consumername=stream.consumer,
                         streams={stream.name: "0-0"},
                         count=stream.max_records,
-                        block=stream.polling_interval,
-                        noack=stream.no_ack,
                     )
+                    if response and response[0][1]:
+                        return response
+
+                    # when no pending messages existed, attempt to claim messages from
+                    # other consumers which have been idle for >= min_idle_time
+                    #
+                    # note: as a side effect this will cause the message idle time to be
+                    #       reset to 0
+                    (_, messages, _) = await client.xautoclaim(
+                        name=stream.name,
+                        groupname=stream.group,
+                        consumername=stream.consumer,
+                        count=stream.max_records,
+                        min_idle_time=stream.min_idle_time,
+                    )
+
+                    if not messages and stream.polling_interval is not None:
+                        await asyncio.sleep(stream.polling_interval / 1000)  # ms to s
+
+                    return ((stream.name.encode(), messages),)
 
         else:
 
